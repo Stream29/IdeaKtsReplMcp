@@ -6,7 +6,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
 internal const val PLUGIN_NAME = "IdeaKtsReplMcp"
-internal const val PLUGIN_VERSION = "0.1.1"
+internal const val PLUGIN_VERSION = "0.1.2"
 internal const val MCP_PATH = "/mcp"
 
 internal const val KOTLIN_EVAL_TOOL_NAME = "kotlin_eval"

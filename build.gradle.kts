@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "io.github.stream29.idea.kts.mcp"
-version = "0.1.1"
+version = "0.1.2"
 
 kotlin {
     jvmToolchain(21)
