@@ -71,6 +71,9 @@ internal val KOTLIN_EVAL_TOOL_DESCRIPTION = """
     - Project/module model: ProjectManager, ModuleManager, ProjectRootManager, ProjectJdkTable.
     - Symbol navigation: PsiElement.references, PsiReference.resolve(), PsiElement.navigationElement,
       OpenFileDescriptor, FileEditorManager.
+    - Search Everywhere: SearchEverywhereManager, SearchEverywhereManagerImpl, SearchEverywhereContributor.
+    - Code assistance: ShowIntentionsPass for context actions/quick fixes; CompletionService,
+      CompletionParameters, LookupElement, LookupElementPresentation for completion candidates.
 
     Common patterns:
     - Start a long task now, poll it later. Because the REPL is stateful, top-level Deferred/Job/Channel
@@ -138,6 +141,87 @@ internal val KOTLIN_EVAL_TOOL_DESCRIPTION = """
     - Run Gradle through IDEA:
       create ExternalSystemTaskExecutionSettings, set externalProjectPath/project system/taskNames,
       then call ExternalSystemUtil.runTask(..., GradleConstants.SYSTEM_ID, callback, ProgressExecutionMode.IN_BACKGROUND_ASYNC, true).
+    - Open Search Everywhere from script:
+      import com.intellij.ide.actions.searcheverywhere.SearchEverywhereManager
+      import com.intellij.openapi.actionSystem.*
+      import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+      withContext(Dispatchers.EDT) {
+          val dataContext = SimpleDataContext.builder()
+              .add(CommonDataKeys.PROJECT, project)
+              .build()
+          val event = AnActionEvent.createFromAnAction(
+              ActionManager.getInstance().getAction("SearchEverywhere"),
+              null,
+              ActionPlaces.UNKNOWN,
+              dataContext,
+          )
+          SearchEverywhereManager.getInstance(project).show(
+              "ActionSearchEverywhereContributor",
+              "Github.Share",
+              event,
+          )
+      }
+      Useful tab/provider ids include ActionSearchEverywhereContributor, FileSearchEverywhereContributor,
+      ClassSearchEverywhereContributor, SymbolSearchEverywhereContributor, TextSearchContributor, and Vcs.Git.
+    - Query Search Everywhere contributors without relying on UI selection:
+      import com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl
+      import com.intellij.openapi.progress.EmptyProgressIndicator
+      val contributors = withContext(Dispatchers.EDT) {
+          SearchEverywhereManagerImpl.createContributors(event, project, true)
+      }
+      val actionContributor = contributors.first {
+          it.searchProviderId == "ActionSearchEverywhereContributor"
+      }
+      val results = readAction {
+          actionContributor.search("Share Project on GitHub", EmptyProgressIndicator())
+      }
+      Do not block the EDT waiting for Search Everywhere futures; start async work and poll later if needed.
+    - Read current context actions/quick fixes, like the IDEA light bulb:
+      import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass
+      val editorAndFile = withContext(Dispatchers.EDT) {
+          val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: error("no editor")
+          val file = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: error("no PSI file")
+          editor to file
+      }
+      val intentionsInfo = readAction {
+          ShowIntentionsPass.getActionsToShow(editorAndFile.first, editorAndFile.second)
+      }
+      ShowIntentionsPass.getActionsToShow must run on a background thread under readAction, not on the EDT.
+      Inspect its intentionsToShow, errorFixesToShow, inspectionFixesToShow, guttersToShow, and
+      notificationActionsToShow fields if the public API is not enough.
+    - Trigger completion and read the active lookup, when the editor context can show a completion popup:
+      import com.intellij.codeInsight.completion.CodeCompletionHandlerBase
+      import com.intellij.codeInsight.completion.CompletionType
+      import com.intellij.codeInsight.lookup.LookupManager
+      import com.intellij.codeInsight.lookup.LookupElementPresentation
+      withContext(Dispatchers.EDT) {
+          val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: error("no editor")
+          CodeCompletionHandlerBase(CompletionType.BASIC).invokeCompletion(project, editor, 1, false)
+          val lookup = LookupManager.getActiveLookup(editor)
+          lookup?.items.orEmpty().map { item ->
+              val presentation = LookupElementPresentation()
+              item.renderElement(presentation)
+              "${'$'}{item.lookupString} ${'$'}{presentation.tailText ?: ""} ${'$'}{presentation.typeText ?: ""}"
+          }.joinToString("\n").also {
+              LookupManager.getInstance(project).hideActiveLookup()
+          }
+      }
+    - Collect completion candidates without depending on the popup:
+      import com.intellij.codeInsight.completion.*
+      import com.intellij.codeInsight.lookup.LookupElementPresentation
+      import com.intellij.util.Consumer
+      val results = mutableListOf<CompletionResult>()
+      readAction {
+          val position = psiFile.findElementAt(offset - 1) ?: error("no completion position")
+          val params = CompletionParameters(position, psiFile, CompletionType.BASIC, offset, 1, editor, process)
+          params.setTestingMode(true)
+          CompletionService.getCompletionService().performCompletion(params, Consumer { result ->
+              results += result
+          })
+      }
+      CompletionParameters needs a real CompletionProcess/CompletionProcessEx in some contributors. If you do not
+      have one, the active lookup route is often simpler; otherwise provide a small CompletionProcessEx proxy with
+      editor, project, caret, offset map, host offsets, and user data.
 
     Project selection:
     - If projectPath is provided, it selects an open project by base path.
