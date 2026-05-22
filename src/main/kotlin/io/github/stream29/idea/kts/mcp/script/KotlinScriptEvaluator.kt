@@ -13,14 +13,15 @@ import kotlin.script.experimental.api.ScriptDiagnostic
 import kotlin.script.experimental.host.toScriptSource
 
 class KotlinScriptEvaluator : AutoCloseable {
-    private val engine = KotlinReplEngine()
+    private val scriptClasspath = collectScriptClasspath()
+    private val engine = KotlinReplEngine(scriptClasspath = scriptClasspath)
     private val states = ConcurrentHashMap<String, KotlinReplState>()
     private val scriptIds = AtomicLong()
 
     init {
         System.setProperty(
             "kotlin.script.classpath",
-            collectScriptClasspath().joinToString(File.pathSeparator) { it.absolutePath },
+            scriptClasspath.joinToString(File.pathSeparator) { it.absolutePath },
         )
     }
 
@@ -100,6 +101,9 @@ data class EvaluationResult(
 
 private fun collectScriptClasspath(): List<File> {
     val files = linkedSetOf<File>()
+    files.addCodeSourceOf(PsiScriptContext::class.java)
+    files.addCodeSourceOf(KotlinScriptEvaluator::class.java)
+
     System.getProperty("java.class.path")
         ?.split(File.pathSeparator)
         ?.map(::File)
@@ -151,8 +155,36 @@ private fun collectClasspathFiles(
         }
     }
 
+    for (methodName in listOf("getFiles", "getLibDirectories")) {
+        val method = classLoader.javaClass.methods.firstOrNull {
+            it.name == methodName && it.parameterCount == 0
+        } ?: continue
+        val value = runCatching { method.invoke(classLoader) }.getOrNull()
+        when (value) {
+            is Array<*> -> value.mapNotNullTo(files) { it.toClasspathFile() }
+            is Iterable<*> -> value.mapNotNullTo(files) { it.toClasspathFile() }
+        }
+    }
+
     collectClasspathFiles(classLoader.parent, files, visited)
 }
+
+private fun MutableSet<File>.addCodeSourceOf(type: Class<*>) {
+    type.protectionDomain
+        ?.codeSource
+        ?.location
+        ?.toClasspathFile()
+        ?.let(::add)
+}
+
+private fun Any?.toClasspathFile(): File? =
+    when (this) {
+        is File -> takeIf { it.exists() }
+        is URL -> toClasspathFile()
+        is java.nio.file.Path -> toFile().takeIf { it.exists() }
+        is String -> File(this).takeIf { it.exists() }
+        else -> null
+    }
 
 private fun URL.toClasspathFile(): File? =
     if (protocol == "file") runCatching { File(toURI()).takeIf { it.exists() } }.getOrNull() else null

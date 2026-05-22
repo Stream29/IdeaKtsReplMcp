@@ -38,6 +38,7 @@ import kotlin.script.experimental.jvmhost.createJvmCompilationConfigurationFromT
 import kotlin.script.experimental.util.PropertiesCollection
 
 class KotlinReplEngine(
+    private val scriptClasspath: List<File> = emptyList(),
     private val compiledScriptsCacheDir: File = createTempDirectory("kotlin-repl-compiled-scripts-").toFile(),
 ) : AutoCloseable {
     private val engineHostConfiguration = ScriptingHostConfiguration {
@@ -85,7 +86,7 @@ class KotlinReplEngine(
             hostConfiguration.put(engineHostConfiguration)
             jvm {
                 dependenciesFromCurrentContext(wholeClasspath = true)
-                updateClasspath(listOf(compiledScriptsCacheDir) + state.dependsOnClasspath)
+                updateClasspath(scriptClasspath + compiledScriptsCacheDir + state.dependsOnClasspath)
             }
             implicitReceivers.append(
                 state.receiverChain(additionalReceivers).map { KotlinType(it::class) },
