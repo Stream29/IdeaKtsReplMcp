@@ -17,6 +17,7 @@ class IdeaKtsReplMcpConfigurable : Configurable {
     private var enabledField: JBCheckBox? = null
     private var hostField: JBTextField? = null
     private var portField: JBTextField? = null
+    private var scriptTimeoutMsField: JBTextField? = null
     private var panel: JPanel? = null
 
     override fun getDisplayName(): String = "IdeaKtsReplMcp"
@@ -25,11 +26,13 @@ class IdeaKtsReplMcpConfigurable : Configurable {
         enabledField = JBCheckBox("Enable MCP server")
         hostField = JBTextField()
         portField = JBTextField()
+        scriptTimeoutMsField = JBTextField()
 
         panel = FormBuilder.createFormBuilder()
             .addComponent(enabledField!!)
             .addLabeledComponent(JBLabel("Host:"), hostField!!, 1, false)
             .addLabeledComponent(JBLabel("Port:"), portField!!, 1, false)
+            .addLabeledComponent(JBLabel("Script timeout (ms):"), scriptTimeoutMsField!!, 1, false)
             .addComponentFillVertically(JPanel(), 0)
             .panel
 
@@ -41,7 +44,8 @@ class IdeaKtsReplMcpConfigurable : Configurable {
         val state = settings.currentState
         return enabledField?.isSelected != state.enabled ||
                 hostField?.text.orEmpty().trim() != state.host ||
-                portField?.text.orEmpty().trim() != state.port.toString()
+                portField?.text.orEmpty().trim() != state.port.toString() ||
+                scriptTimeoutMsField?.text.orEmpty().trim() != state.scriptTimeoutMs.toString()
     }
 
     override fun apply() {
@@ -55,10 +59,16 @@ class IdeaKtsReplMcpConfigurable : Configurable {
             throw ConfigurationException("Host must not be empty.")
         }
 
+        val scriptTimeoutMs = scriptTimeoutMsField?.text.orEmpty().trim().toLongOrNull()
+        if (scriptTimeoutMs == null || scriptTimeoutMs <= 0) {
+            throw ConfigurationException("Script timeout must be a positive number.")
+        }
+
         settings.updateState(
             enabled = enabledField?.isSelected == true,
             host = host,
             port = port,
+            scriptTimeoutMs = scriptTimeoutMs,
         )
     }
 
@@ -67,12 +77,14 @@ class IdeaKtsReplMcpConfigurable : Configurable {
         enabledField?.isSelected = state.enabled
         hostField?.text = state.host
         portField?.text = state.port.toString()
+        scriptTimeoutMsField?.text = state.scriptTimeoutMs.toString()
     }
 
     override fun disposeUIResources() {
         enabledField = null
         hostField = null
         portField = null
+        scriptTimeoutMsField = null
         panel = null
     }
 }

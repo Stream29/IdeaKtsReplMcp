@@ -18,16 +18,20 @@ import io.modelcontextprotocol.kotlin.sdk.types.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import java.util.concurrent.CopyOnWriteArraySet
+import kotlin.time.Duration.Companion.milliseconds
 
 private val TOOL_ARGUMENTS_JSON = Json {
     ignoreUnknownKeys = true
@@ -39,6 +43,7 @@ private data class KotlinEvalToolArguments(
     val resetState: Boolean = false,
     val projectPath: String? = null,
     val projectName: String? = null,
+    val timeoutMs: Long? = null,
 )
 
 @Service(Service.Level.APP)
@@ -138,8 +143,26 @@ class IdeaKtsReplMcpServerService : Disposable {
                         content = listOf(TextContent("No open IntelliJ project matched the request.")),
                         isError = true,
                     )
+                val timeoutMs = (arguments.timeoutMs ?: settings.currentState.scriptTimeoutMs).takeIf { it > 0 }
+                    ?: return@addTool CallToolResult(
+                        content = listOf(
+                            TextContent("timeoutMs must be greater than 0."),
+                        ),
+                        isError = true,
+                    )
 
-                val result = evaluator.evaluate(arguments.script, PsiScriptContext(project), arguments.resetState)
+                val result = try {
+                    withTimeout(timeoutMs.milliseconds) {
+                        runInterruptible {
+                            evaluator.evaluate(arguments.script, PsiScriptContext(project), arguments.resetState)
+                        }
+                    }
+                } catch (_: TimeoutCancellationException) {
+                    return@addTool CallToolResult(
+                        content = listOf(TextContent("Script evaluation timed out after ${timeoutMs}ms.")),
+                        isError = true,
+                    )
+                }
                 CallToolResult(
                     content = listOf(TextContent(result.text)),
                     isError = !result.ok,

@@ -4,6 +4,7 @@ import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import io.github.stream29.idea.kts.mcp.KOTLIN_EVAL_DEFAULT_TIMEOUT_MS
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,11 +25,12 @@ class IdeaKtsReplMcpSettings : PersistentStateComponent<IdeaKtsReplMcpSettings.S
         mutableState.value = state.copy()
     }
 
-    fun updateState(enabled: Boolean, host: String, port: Int) {
+    fun updateState(enabled: Boolean, host: String, port: Int, scriptTimeoutMs: Long) {
         mutableState.value = State(
             enabled = enabled,
             host = host,
             port = port,
+            scriptTimeoutMs = scriptTimeoutMs,
         )
     }
 
@@ -36,5 +38,6 @@ class IdeaKtsReplMcpSettings : PersistentStateComponent<IdeaKtsReplMcpSettings.S
         var enabled: Boolean = true,
         var host: String = "127.0.0.1",
         var port: Int = 39393,
+        var scriptTimeoutMs: Long = KOTLIN_EVAL_DEFAULT_TIMEOUT_MS,
     )
 }
