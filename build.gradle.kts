@@ -32,8 +32,6 @@ configurations.runtimeClasspath {
 dependencies {
     intellijPlatform {
         intellijIdea(providers.gradleProperty("platformVersion"))
-        bundledPlugin("com.intellij.java")
-        bundledPlugin("org.jetbrains.kotlin")
     }
 
     implementation("io.ktor:ktor-server-cio:3.3.3")

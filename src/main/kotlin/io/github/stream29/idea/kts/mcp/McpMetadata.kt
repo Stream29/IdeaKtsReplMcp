@@ -13,9 +13,14 @@ internal const val KOTLIN_EVAL_TOOL_NAME = "kotlin_eval"
 internal const val KOTLIN_EVAL_DEFAULT_TIMEOUT_MS = 60_000L
 
 internal val KOTLIN_EVAL_TOOL_DESCRIPTION = """
-    Execute unrestricted Kotlin script inside the running IntelliJ IDEA process.
+    Evaluate an unrestricted script inside the running JetBrains IDE process.
 
-    This is a stateful Kotlin REPL scoped to the selected project. The script has one implicit receiver:
+    The script language is Kotlin, but the exposed capabilities come from the current IntelliJ Platform IDE
+    and the plugins loaded in that IDE, such as WebStorm, PyCharm, IntelliJ IDEA, GoLand, or other JetBrains IDEs.
+    Do not assume Java, Kotlin, Gradle, Python, JavaScript, or GitHub APIs are present; probe plugin availability
+    or class availability before using product- or language-specific APIs.
+
+    This is a stateful project-scoped REPL. The script has one implicit receiver:
     project: com.intellij.openapi.project.Project. Top-level declarations from previous calls are kept, so
     you can define variables, helper functions, imports, and cached services once, then reuse them in later calls.
     Pass resetState=true when you want to clear that project's REPL history.
@@ -58,16 +63,16 @@ internal val KOTLIN_EVAL_TOOL_DESCRIPTION = """
       in IntelliJ Platform code.
     - Commit documents before reading PSI if editor changes matter:
       PsiDocumentManager.getInstance(project).commitAllDocuments()
-    - Do not run long blocking waits on the EDT. Start the operation on the proper IDEA API and wait from a
+    - Do not run long blocking waits on the EDT. Start the operation on the proper IDE API and wait from a
       background thread only when necessary.
 
-    Useful IDEA API entry points:
+    Useful IntelliJ Platform API entry points:
     - PSI/project files: PsiManager, PsiDocumentManager, FilenameIndex, GlobalSearchScope, VfsUtilCore.
     - Editors/documents: FileEditorManager, FileDocumentManager, EditorFactory, Document.
     - Inspections/highlighting: DaemonCodeAnalyzerEx, HighlightInfo, IntentionManager.
-    - Refactoring: RefactoringFactory, Java/Kotlin PSI refactoring APIs, WriteCommandAction.
+    - Refactoring: RefactoringFactory, language-specific PSI refactoring APIs, WriteCommandAction.
     - Gradle sync/builds: ExternalSystemUtil with GradleConstants.SYSTEM_ID; prefer this over shelling out to gradlew
-      when validating IDEA integration.
+      when validating IDE integration, but only if the Gradle plugin is available in the current IDE.
     - Project/module model: ProjectManager, ModuleManager, ProjectRootManager, ProjectJdkTable.
     - Symbol navigation: PsiElement.references, PsiReference.resolve(), PsiElement.navigationElement,
       OpenFileDescriptor, FileEditorManager.
@@ -119,7 +124,7 @@ internal val KOTLIN_EVAL_TOOL_DESCRIPTION = """
       smartReadAction(project) {
           // FilenameIndex, StubIndex, resolve, project-wide PSI analysis
       }
-    - Resolve a local symbol to upstream source or IDEA's decompiled PSI, similar to Command+Click:
+    - Resolve a local symbol to upstream source or the IDE's decompiled PSI, similar to Command+Click:
       val target = element.references.firstNotNullOfOrNull { it.resolve() }
       val navigation = target?.navigationElement
       val file = navigation?.containingFile
@@ -130,7 +135,7 @@ internal val KOTLIN_EVAL_TOOL_DESCRIPTION = """
           file?.javaClass?.name,
       ).joinToString("\n")
       navigationElement often maps library .class PSI to attached sources, if available. If sources are not
-      attached, IDEA may still provide a decompiled PSI file such as KtClsFile.
+      attached, the IDE may still provide a decompiled PSI file depending on the installed language plugin.
     - Optionally open the resolved source/decompiled file in the editor:
       val descriptor = OpenFileDescriptor(project, virtualFile, navigation.textOffset)
       FileEditorManager.getInstance(project).openTextEditor(descriptor, true)
@@ -138,7 +143,7 @@ internal val KOTLIN_EVAL_TOOL_DESCRIPTION = """
       writeCommandAction(project, "Update code") {
           // edit Document or PSI here
       }
-    - Run Gradle through IDEA:
+    - Run Gradle through the IDE:
       create ExternalSystemTaskExecutionSettings, set externalProjectPath/project system/taskNames,
       then call ExternalSystemUtil.runTask(..., GradleConstants.SYSTEM_ID, callback, ProgressExecutionMode.IN_BACKGROUND_ASYNC, true).
     - Open Search Everywhere from script:
@@ -176,7 +181,7 @@ internal val KOTLIN_EVAL_TOOL_DESCRIPTION = """
           actionContributor.search("Share Project on GitHub", EmptyProgressIndicator())
       }
       Do not block the EDT waiting for Search Everywhere futures; start async work and poll later if needed.
-    - Read current context actions/quick fixes, like the IDEA light bulb:
+    - Read current context actions/quick fixes, like the editor light bulb:
       import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass
       val editorAndFile = withContext(Dispatchers.EDT) {
           val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: error("no editor")
@@ -236,7 +241,9 @@ internal val KOTLIN_EVAL_TOOL_SCHEMA = ToolSchema(
             put(
                 "description",
                 """
-                    Kotlin script executed inside IntelliJ IDEA as a stateful project-scoped REPL.
+                    Script executed inside the current JetBrains IDE as a stateful project-scoped REPL.
+                    The script language is Kotlin, but available IDE APIs depend on the current product
+                    and installed plugins.
                     The implicit receiver exposes project: com.intellij.openapi.project.Project.
                     Return data as the final expression; stdout and stderr are not tool output.
                     Prefer coroutine APIs: readAction/smartReadAction for PSI/model reads,
@@ -247,15 +254,15 @@ internal val KOTLIN_EVAL_TOOL_SCHEMA = ToolSchema(
         }
         putJsonObject("projectPath") {
             put("type", "string")
-            put("description", "Optional IntelliJ project base path.")
+            put("description", "Optional IDE project base path.")
         }
         putJsonObject("projectName") {
             put("type", "string")
-            put("description", "Optional IntelliJ project name.")
+            put("description", "Optional IDE project name.")
         }
         putJsonObject("resetState") {
             put("type", "boolean")
-            put("description", "Reset this project's Kotlin script state before evaluating the script.")
+            put("description", "Reset this project's REPL state before evaluating the script.")
         }
         putJsonObject("timeoutMs") {
             put("type", "integer")
