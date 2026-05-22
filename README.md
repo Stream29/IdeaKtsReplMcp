@@ -44,9 +44,15 @@ The interesting part is not "run Kotlin in IDEA". The interesting part is that a
 
 Instead of stuffing whole files into a prompt and hoping the model keeps the structure straight, the agent can inspect the shape of the program first: declarations, expressions, references, scopes, diagnostics, navigation targets. It can load only the next layer of information when it needs it. That makes code understanding feel less like text prediction and more like working with a living development environment.
 
-## What The Agent Actually Runs
+## Use Cases
 
-Look at the shape around the caret before reading the whole file:
+### See The Shape Before Reading The Details
+
+Large files are easier to understand when the agent can first see their structure.
+
+The agent can begin with a PSI parent chain, not a full file dump. It sees whether the caret is inside a call argument, a lambda body, a property initializer, an import, or a class declaration. Then it can ask for only the next useful layer: siblings in the same block, the containing function signature, the surrounding class, or references to the same symbol.
+
+For example, it can ask IDEA for the PSI path around the caret:
 
 ```kotlin
 val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: error("no editor")
@@ -70,9 +76,17 @@ KtLambdaArgument: { val mcpServer = createMcpServer() mcpStreamableHttp(path = M
 KtCallExpression: embeddedServer(CIO, host = host, port = port) { val mcpServer = createMcpServer() mcpStreamableH
 ```
 
-The agent gets a compact path through the syntax tree: name reference, call, property, block, lambda, and the enclosing server builder call. It can decide the next question from structure instead of guessing from raw text.
+The return value is the exciting part: the agent gets a compact route through the program shape before it reads the surrounding text.
 
-Resolve a symbol like Command-click:
+That changes editing behavior. A local edit can stay local because the agent knows the boundary of the expression it is touching. A refactor can move up to IDE machinery because the agent knows when the node is a declaration, a reference, or a package boundary.
+
+### Follow The Code, Not The Text
+
+Ask the agent to explain where a call really goes.
+
+Instead of grepping through source files, it can start from the PSI element under the caret, resolve references, and ask IDEA for the navigation element. If the target lives in a dependency, IDEA can still lead it to attached sources or a decompiled view. If the target is generated or indexed, IDEA already knows where the meaningful representation is.
+
+The script looks like a programmable Command-click:
 
 ```kotlin
 val serverCall = file.text.indexOf("Server(\n")
@@ -94,58 +108,15 @@ jar:///Users/stream/.gradle/caches/modules-2/files-2.1/io.modelcontextprotocol/k
 ( protected val serverInfo: Implementation, protected val options: ServerOptions, protected val instructionsProvider: (() -> String)? = null, block: Server.() -> Unit = {}, )
 ```
 
-The agent gets the real declaration, attached source, or IDEA's decompiled view. Library code stops being a black box.
+The result is not a list of matching strings. It is a path through the same semantic links you use when you Command-click. The agent can quote the declaration it reached, inspect its parameters, then decide whether to keep following the chain.
 
-Ask IDEA what it would suggest here:
+### Search The IDE, Not Just The Repository
 
-```kotlin
-val actions = readAction {
-    ShowIntentionsPass.getActionsToShow(editor, file)
-}
-actions.intentionsToShow.joinToString("\n") { it.action.text }
-```
+Search Everywhere is useful because it is not one search box. It is many IDE search surfaces behind one gesture.
 
-Returns:
+The agent can ask IDEA which contributors are available, then search in the right place: files when it needs a path, symbols when it needs an API, actions when it needs a command, Git when it needs a branch or commit, endpoints when it needs a route, run configurations when it needs to execute something.
 
-```text
-intentionsToShow:
-- Remove explicit type specification
-- Split property declaration
-errorFixesToShow:
-inspectionFixesToShow:
-```
-
-The agent gets the same light-bulb actions a developer would see: quick fixes, intentions, inspection fixes, and local cleanup moves.
-
-Use completion as local truth:
-
-```kotlin
-val results = mutableListOf<CompletionResult>()
-CompletionService.getCompletionService().performCompletion(params, Consumer { result ->
-    results += result
-})
-results.take(6).joinToString("\n") { result ->
-    val item = result.lookupElement
-    val presentation = LookupElementPresentation()
-    item.renderElement(presentation)
-    "${item.lookupString} ${presentation.typeText ?: ""}"
-}
-```
-
-Returns:
-
-```text
-Rename (⇧F6)
-Rename (⇧F6)
-Surround with 'try / finally' (⌥⌘T)
-Surround with 'try / finally' (⌥⌘T)
-Surround with 'try / catch / finally' (⌥⌘T)
-Surround with 'try / catch / finally' (⌥⌘T)
-```
-
-The agent sees real completion entries from IDEA's pipeline. Depending on the caret, those entries can be symbols, keywords, live templates, or command-style completions.
-
-Ask Search Everywhere what parts of the IDE are searchable:
+It can first ask what Search Everywhere can see in this IDE:
 
 ```kotlin
 val contributors = withContext(Dispatchers.EDT) {
@@ -175,49 +146,30 @@ DbObjectsSEContributor: Database
 Vcs.Git: Git
 ```
 
-The agent can use the same discovery surface as a developer pressing Search Everywhere: files, classes, symbols, actions, endpoints, run configurations, and Git.
-
-## Why It Feels Different
-
-- The agent can follow a symbol the way you Command-click it.
-- It can inspect the syntax tree shape before reading every line of text.
-- It can progressively load deeper semantic context only when needed.
-- It can use Search Everywhere as a map of what the IDE can find next.
-- It can ask IDEA for the quick fixes you would see from the light bulb.
-- It can use code completion as a source of local truth instead of guessing APIs.
-- It can wait for Gradle sync before reasoning about unresolved code.
-- It can use IDEA's GitHub account instead of asking for another token.
-- It can keep REPL state across calls, so exploration becomes a conversation rather than a pile of one-off commands.
-
-## Use Cases
-
-### See The Shape Before Reading The Details
-
-Large files are easier to understand when the agent can first see their structure.
-
-The agent can begin with a PSI parent chain, not a full file dump. It sees whether the caret is inside a call argument, a lambda body, a property initializer, an import, or a class declaration. Then it can ask for only the next useful layer: siblings in the same block, the containing function signature, the surrounding class, or references to the same symbol.
-
-That changes editing behavior. A local edit can stay local because the agent knows the boundary of the expression it is touching. A refactor can move up to IDE machinery because the agent knows when the node is a declaration, a reference, or a package boundary.
-
-### Follow The Code, Not The Text
-
-Ask the agent to explain where a call really goes.
-
-Instead of grepping through source files, it can start from the PSI element under the caret, resolve references, and ask IDEA for the navigation element. If the target lives in a dependency, IDEA can still lead it to attached sources or a decompiled view. If the target is generated or indexed, IDEA already knows where the meaningful representation is.
-
-The result is not a list of matching strings. It is a path through the same semantic links you use when you Command-click. The agent can quote the declaration it reached, inspect its parameters, then decide whether to keep following the chain.
-
-### Search The IDE, Not Just The Repository
-
-Search Everywhere is useful because it is not one search box. It is many IDE search surfaces behind one gesture.
-
-The agent can ask IDEA which contributors are available, then search in the right place: files when it needs a path, symbols when it needs an API, actions when it needs a command, Git when it needs a branch or commit, endpoints when it needs a route, run configurations when it needs to execute something.
-
 This is a very different starting point from `rg`. The agent can discover "Share Project on GitHub", "Gradle sync", "Run Configurations", or a symbol name through the IDE's own navigation model, then act on the result with the corresponding IntelliJ API.
 
 ### Let IDEA Tell The Agent What To Do
 
 When code has a warning, the agent can ask IDEA for the same context actions you see in the editor.
+
+The script can read the light-bulb menu directly:
+
+```kotlin
+val actions = readAction {
+    ShowIntentionsPass.getActionsToShow(editor, file)
+}
+actions.intentionsToShow.joinToString("\n") { it.action.text }
+```
+
+Returns:
+
+```text
+intentionsToShow:
+- Remove explicit type specification
+- Split property declaration
+errorFixesToShow:
+inspectionFixesToShow:
+```
 
 That means the agent can read the light-bulb menu before editing. It can separate intentions from error fixes and inspection fixes, show the user the available moves, and apply the one that matches the goal. For simple cleanup, IDEA may already know the safest transformation. For ambiguous repairs, the action list gives the agent a grounded menu instead of a blank page.
 
@@ -228,6 +180,32 @@ This also makes review work sharper. The agent can intentionally create a small 
 Code completion is a surprisingly powerful oracle.
 
 When the agent is unsure which API exists in this exact IDE, plugin version, dependency graph, or source set, it can ask IDEA for completion candidates at the current location. The answer is scoped to this project, this language, this classpath, and this partially typed code.
+
+That is just another scriptable IDE query:
+
+```kotlin
+val results = mutableListOf<CompletionResult>()
+CompletionService.getCompletionService().performCompletion(params, Consumer { result ->
+    results += result
+})
+results.take(6).joinToString("\n") { result ->
+    val item = result.lookupElement
+    val presentation = LookupElementPresentation()
+    item.renderElement(presentation)
+    "${item.lookupString} ${presentation.typeText ?: ""}"
+}
+```
+
+Returns:
+
+```text
+Rename (⇧F6)
+Rename (⇧F6)
+Surround with 'try / finally' (⌥⌘T)
+Surround with 'try / finally' (⌥⌘T)
+Surround with 'try / catch / finally' (⌥⌘T)
+Surround with 'try / catch / finally' (⌥⌘T)
+```
 
 Sometimes the result is a member or extension function. Sometimes it is a keyword, live template, or command-style completion such as Rename or Surround With. Either way, the agent learns what IDEA thinks is a valid next move at that exact caret position.
 
